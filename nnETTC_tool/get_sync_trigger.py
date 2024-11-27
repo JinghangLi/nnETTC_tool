@@ -23,7 +23,7 @@ def get_rgb_trigger_timemap(rosbag_path: str,
     """
     rgb_trigger_list = []
     last_trigger_ts = 0
-    expect_time_interval = 1.0 / int(rgb_expect_freq)
+    expect_time_interval = 1.0 / rgb_expect_freq
     bool_first_frame = True
 
     with rosbag.Bag(rosbag_path, 'r') as bag:
@@ -49,23 +49,24 @@ def get_rgb_trigger_timemap(rosbag_path: str,
                 'rgb_exp_index': f"{exp_cnt:010d}",
                 'rgb_exp_start_ts': rgb_exp_start_ts,
                 'rgb_exp_end_ts': rgb_exp_end_ts,
-                'exposure_time_ts': exposure_ts
+                'exposure_time_tus': exp_msg.exposure_time
             })
             trig_bar.update(1)
         rgb_trigger_df = pd.DataFrame(rgb_trigger_list)
 
         
         rgb_bar = tqdm(total=bag.get_message_count(topic_filters=rgb_topic), desc="Processing RGB Image Messages")
-        for rgb_cnt, (_, msg, _) in enumerate(bag.read_messages(topics=[rgb_topic])):
+        for rgb_index, (_, msg, _) in enumerate(bag.read_messages(topics=[rgb_topic])):
             rgb_header_ts = rostime_to_ts(msg.header.stamp)
             # Find the corresponding row in rgb_trigger_df
-            matching_row = rgb_trigger_df[rgb_trigger_df['rgb_exp_end_ts'] == rgb_header_ts]
-            if matching_row.empty:
-                error_message = f"Error: {rgb_cnt:010d}, No matching row found for rgb timestamp [{rgb_header_ts}]"
+            matching_row = rgb_trigger_df[abs(rgb_trigger_df['rgb_exp_end_ts'] - rgb_header_ts) < 1e-6]  # limit by float precision, if time diff less than 1e-6s (1us), then match
+            if matching_row.empty: 
+                error_message = f"Error: {rgb_index:010d}, No matching row found for rgb timestamp [{rgb_header_ts}]"
                 print(f"\033[91m{error_message}\033[0m")
                 continue
             else:
                 rgb_trigger_df.loc[matching_row.index, 'has_rgb'] = 1 
+                rgb_trigger_df.loc[matching_row.index, 'rgb_bag_index'] = rgb_index
 
             rgb_bar.update(1)
     bag.close()
